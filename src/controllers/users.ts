@@ -1,83 +1,94 @@
 import express from "express";
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { genrateToken, verifyToken } from '../helpers/genrateToken';
+import { genrateToken } from '../helpers/genrateToken';
 import { UserModel } from "../db/models/user";
-import { errorHandler } from '../helpers/errorHandler';
 import { NextFunction } from 'express';
-import sendEmail from "../helpers/send-email";
-const user = UserModel.getInstance();
-const jwtSecretKey: string = process.env.JWT_TOKEN_SECRET;
-const jwtActivationKey: string = process.env.JWT_TOKEN_ACTIVATION;
-export class UserCon {
-
-    public async signup(req: express.Request, res: express.Response, next: NextFunction) {
-        if (!user.strongPassword(req.body.password))
-            return res.status(400).send("Password should be complex");
-        const user1 = await user.model.findOne({
-            'email': req.body.email
+import sendEmail from "../helpers/send-email"; 
+import { verify } from "../helpers/TokenVerifcation";
+;
+export class UserController {
+    user: UserModel | any;
+    jwtSecretKey = process.env.JWT_TOKEN_SECRET;
+    jwtActivationKey = process.env.JWT_TOKEN_ACTIVATION;
+    constructor(private usermodel: UserModel | any) {
+        this.user = usermodel;
+    }
+    public async signup(body: {
+        password: string,
+        email: string,
+        username: string,
+    }): Promise<string> {
+        const strongRegex = new RegExp(
+            '^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#$%^&*])(?=.{6,30})'
+        );
+        if (!strongRegex.test(body.password)) throw new Error("Password should be complex");
+        const user1 = await this.user.model.findOne({
+            'email': body.email
         });
-        if (user1) return res.status(400).send('This mail already exists.');
+        if (user1) throw new Error('This mail already exists.');
         const salt = await bcrypt.genSalt(10);
-        let password = await bcrypt.hash(req.body.password, salt);
-        const newUser = await user.model.create({ password, username: req.body.username, email: req.body.email });
-        const token = genrateToken({
+        let password = await bcrypt.hash(body.password, salt);
+        const newUser = await this.user.model.create({ password, username: body.username, email: body.email });
+        const token = jwt.sign({
             email: newUser.email,
             id: newUser._id
-        }, jwtActivationKey, { expiresIn: '5m' });
+        },
+            this.jwtActivationKey, { expiresIn: '5m' }
+        );
         sendEmail(newUser, token);
-        res.send('Check your inbox to activate your account in the next five menets.');
-        // next(new Error('Could not send a verfication mail!'));
+        return 'Check your inbox to activate your account in the next five menets.';
     }
 
-    public async login(req: express.Request, res: express.Response) {
-        if (!(req.body.email || req.body.password)) {
-            return res.status(400).send("No provided username or password");
+    public async login(body: {
+        password: string,
+        email: string
+    }) {
+        if (!(body.email || body.password)) {
+            throw new Error("No provided username or password");
         }
-        const user2 = await user.model.findOne({
-            email: req.body.email
+        const user2 = await this.user.model.findOne({
+            email: body.email
         })
             .select("email password _id isAdmin activated");
-
-        if (!user2) return res.status(400).send("Invalid email or password");
-        if (!user2.activated) return res.status(401).send('This account is not activated');
+        if (!user2) throw new Error("Invalid email or password");
+        if (!user2.activated) throw new Error("Invalid email or password");
         //Now we've found that user
         //we need next to check for his password and see if it's correct
-        const validPassword = await user.comparePassword(req.body.password, user2.password);
+        const validPassword = await this.user.comparePassword(body.password, user2.password);
         if (!validPassword)
-            return res.status(400).send("Invalid email or password");
+            throw new Error("Invalid email or password");
         // if (!user.activate) return res.send("Account hasn't been activated yet, please check your email to complete activation");
         const token = genrateToken({
             email: user2.email,
-            id: user2._id
-        }, jwtSecretKey, {});
-        res.header('x-auth-token', token).send('Done');
+            _id: user2._id,
+            isAdmin: user2.isAdmin
+        },
+            this.jwtSecretKey
+        );
+        return token;
     }
 
-    public async activate(req: express.Request, res: express.Response, next: NextFunction) {
-        const token = req.query.token;
+    public async activate(token:string) {
+       
         if (!token)
-            return res.status(401).send('No provided token');
-        jwt.verify(token, jwtActivationKey, (err, decoded) => {
-            if (err)
-                return res.status(401).send('Invalid token');
-            errorHandler.handleError(err);
-            user.model.findOneAndUpdate({ _id: decoded.id }, { activated: true }, (err, result) => {
-                if (err) {
-                    return errorHandler.handleError(err);
-                }
+            throw new Error('No provided token');
+        try {
+            const decoded = await verify(token, this.jwtActivationKey);
+            const result = await this.user.model.findOneAndUpdate({ _id: decoded.id }, { activated: true });
                 if (!result) {
-                    next(new Error('User not found'));
+                    throw new Error("Could not activate account");
                 }
                 else {
-                    res.send('Account activated successfully');
+                    return('Account activated successfully');
                 }
-            })
-        });
+        } catch (error) {
+            throw error;
+        }
     }
 
-    public async forgetPass(req: Request, res: Response, next: NextFunction) {
-        const user1 = await user.model.findOne({
+    public async forgetPass(req: express.Request, res: express.Response, next: NextFunction) {
+        const user1 = await this.user.model.findOne({
             email: req.body.email
         })
             .select("email password _id activated");
@@ -86,27 +97,28 @@ export class UserCon {
 
 
     }
-    public async changePass(req: Request, res: Response, next: NextFunction) {
-        const user2 = await user.model.findOne({
+    public async changePass(req:express.Request) {
+        const user2 = await this.user.model.findOne({
             email: req.currentUser.email
         })
             .select("password");
-        const validPassword = await user.comparePassword(req.body.oldPassword, user2.password);
+        const validPassword = await this.user.comparePassword(req.body.oldPassword, user2.password);
         if (!validPassword)
-            return res.status(400).send("Old password is wrong");
-        if (!user.strongPassword(req.body.newPassword))
-            return res.status(400).send("New password should be complex");
+            throw new Error("Old password is wrong");
+        if (!this.user.strongPassword(req.body.newPassword))
+            throw new Error("New password should be complex");
         if (req.body.newPassword === req.body.oldPassword)
-            return res.status(400).send("New password should be different");
+            throw new Error("New password should be different");
         const salt = await bcrypt.genSalt(10);
         let newPassword = await bcrypt.hash(req.body.newPassword, salt);
-        user.model.findOneAndUpdate({ email: req.currentUser.email }, { password: newPassword }, (err, result) => {
-            if (err) {
-                return errorHandler.handleError(err);
+        const result = await this.user.model.findOneAndUpdate({ email: req.currentUser.email }, { password: newPassword };
+            
+            
+            if (!result) {
+                throw new Error("Could not find user")
             }
             else {
-                res.send('Password changed successfully');
+                return ('Password changed successfully');
             }
-        });
     }
 }
