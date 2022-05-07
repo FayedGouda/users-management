@@ -6,11 +6,12 @@ import { UserModel } from "../db/models/user";
 import { NextFunction } from 'express';
 import sendEmail from "../helpers/send-email"; 
 import { verify } from "../helpers/TokenVerifcation";
+import strongPassword from "../validation/passowrd";
 ;
 export class UserController {
     user: UserModel | any;
-    jwtSecretKey = process.env.JWT_TOKEN_SECRET;
-    jwtActivationKey = process.env.JWT_TOKEN_ACTIVATION;
+    jwtSecretKey = process.env.JWT_TOKEN_SECRET||'';
+    jwtActivationKey = process.env.JWT_TOKEN_ACTIVATION||'';
     constructor(private usermodel: UserModel | any) {
         this.user = usermodel;
     }
@@ -19,10 +20,7 @@ export class UserController {
         email: string,
         username: string,
     }): Promise<string> {
-        const strongRegex = new RegExp(
-            '^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#$%^&*])(?=.{6,30})'
-        );
-        if (!strongRegex.test(body.password)) throw new Error("Password should be complex");
+        if (!strongPassword(body.password)) throw new Error("Password should be complex");
         const user1 = await this.user.model.findOne({
             'email': body.email
         });
@@ -87,17 +85,7 @@ export class UserController {
         }
     }
 
-    public async forgetPass(req: express.Request, res: express.Response, next: NextFunction) {
-        const user1 = await this.user.model.findOne({
-            email: req.body.email
-        })
-            .select("email password _id activated");
-        if (!user1) return res.status(400).send('Incorrect email');
-        if (!user1.activated) return res.status(401).send('This account is not activated');
-
-
-    }
-    public async changePass(req:express.Request) {
+    public async changePass(req:any) {
         const user2 = await this.user.model.findOne({
             email: req.currentUser.email
         })
@@ -111,7 +99,7 @@ export class UserController {
             throw new Error("New password should be different");
         const salt = await bcrypt.genSalt(10);
         let newPassword = await bcrypt.hash(req.body.newPassword, salt);
-        const result = await this.user.model.findOneAndUpdate({ email: req.currentUser.email }, { password: newPassword };
+        const result = await this.user.model.findOneAndUpdate({ email: req.currentUser.email }, { password: newPassword });
             
             
             if (!result) {
@@ -120,5 +108,15 @@ export class UserController {
             else {
                 return ('Password changed successfully');
             }
+    }
+    public async forgetPass(req: express.Request, res: express.Response, next: NextFunction) {
+        const user1 = await this.user.model.findOne({
+            email: req.body.email
+        })
+            .select("email password _id activated");
+        if (!user1) return res.status(400).send('Incorrect email');
+        if (!user1.activated) return res.status(401).send('This account is not activated');
+
+
     }
 }

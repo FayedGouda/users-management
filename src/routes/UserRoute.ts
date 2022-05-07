@@ -1,6 +1,6 @@
 import {Request, Response, Router} from "express";
 import { RouteBase } from "./RouteBase";
-import { UserController } from '../controllers/users';
+import { UserController } from '../controllers/userControllers';
 import { Auth } from '../middlewares/auth';
 import { UserModel } from "../db/models/user";
 export class UserRoute implements RouteBase {

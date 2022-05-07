@@ -48,15 +48,7 @@ export class UserModel extends ModelBase {
     define() {
         return mongoose.model<User>(this.name, this.attributes)
     }
-    strongPassword(password: string): Boolean {
-        console.log(password);
-        const strongRegex = new RegExp(
-            '^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#$%^&*])(?=.{6,30})'
-        );
-        const result = strongRegex.test(password);
-        // console.log(result);
-        return result;
-    }
+    
     comparePassword(pass1: string, pass2: string) {
         return bcrypt.compare(pass1, pass2);
 

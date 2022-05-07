@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+const nodemailer =require('nodemailer');
 import { errorHandler } from '../helpers/errorHandler';
 import { logger } from './logger';
 const mailServer = process.env.MAIL_SERVER;
@@ -21,7 +21,7 @@ const sendEmail = (newUser: any, token: string) => {
 
     };
 
-    transporter.sendMail(mailOptions, function (error, info) {
+    transporter.sendMail(mailOptions, function (error: Error, info: { response: string; }) {
         if (error) {
             errorHandler.handleError(error);
         } else {
